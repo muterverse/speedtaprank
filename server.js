@@ -1,123 +1,102 @@
-let userId = null; // 사용자 고유 ID
-let nickname = null; // 사용자 닉네임
-let rankingStarted = false; // 랭킹 시작 여부
-let clickDisabled = false; // "Click Me!" 버튼 비활성화 상태
-const ws = new WebSocket('ws://' + window.location.host); // WebSocket 연결
+const WebSocket = require('ws'); // WebSocket 라이브러리 로드
+const http = require('http');
 
-document.addEventListener('DOMContentLoaded', () => {
-    const actionButton = document.getElementById('action-button');
-    if (actionButton) {
-        actionButton.addEventListener('click', () => {
-            if (!rankingStarted) {
-                // 랭킹이 시작되지 않은 경우 3초간 버튼 비활성화
-                disableClickButton();
-                return;
-            }
-            console.log('"Click Me!" button clicked');
-            handleButtonClick();
-        });
-    }
-
-    const startRankingButton = document.getElementById('start-ranking-button');
-    if (startRankingButton) {
-        startRankingButton.addEventListener('click', () => {
-            console.log('"Start Ranking" button clicked');
-            rankingStarted = true; // 랭킹 시작 상태 설정
-            document.getElementById('admin-status-message').innerText = 'Ranking has started!';
-            alert('Ranking has started!');
-        });
-    }
+// HTTP 서버 생성
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('WebSocket Server Running');
 });
 
-// "Click Me!" 버튼 비활성화 함수
-function disableClickButton() {
-    const actionButton = document.getElementById('action-button');
-    if (clickDisabled) return; // 이미 비활성화된 경우 처리하지 않음
+// WebSocket 서버 생성
+const wss = new WebSocket.Server({ server });
 
-    clickDisabled = true; // 버튼 비활성화 상태 설정
-    actionButton.disabled = true; // 버튼 비활성화
-    actionButton.style.opacity = '0.5'; // 시각적 효과 추가
+let clients = []; // 연결된 클라이언트 목록
+let rankingStarted = false; // 랭킹 시작 여부
+let rankingData = []; // 순위 데이터
 
-    // 3초 후 버튼 활성화
-    setTimeout(() => {
-        clickDisabled = false; // 비활성화 상태 해제
-        actionButton.disabled = false; // 버튼 활성화
-        actionButton.style.opacity = '1'; // 시각적 효과 복구
-    }, 3000);
+// WebSocket 이벤트 핸들러
+wss.on('connection', (ws) => {
+    console.log('Client connected');
+    clients.push(ws);
 
-    alert('You cannot click the button until ranking starts!');
-}
+    // 메시지 수신 이벤트 처리
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
 
-// 닉네임 설정 함수
-function setNickname() {
-    const nicknameInput = document.getElementById('nickname').value.trim();
-    const messageDiv = document.getElementById('message');
-
-    if (nicknameInput) {
-        fetch('/set-nickname', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nickname: nicknameInput }),
-        })
-            .then((response) => response.json())
-            .then((data) => {
-                if (data.success) {
-                    userId = data.userId;
-                    nickname = data.nickname;
-
-                    document.getElementById('nickname-container').classList.add('hidden');
-                    document.getElementById('button-container').classList.remove('hidden');
-                    document.getElementById('welcome-message').innerText = `Welcome, ${data.nickname}!`;
-                } else {
-                    messageDiv.innerText = `Error: ${data.error}`;
-                }
-            })
-            .catch(() => {
-                messageDiv.innerText = 'Failed to set nickname. Try again!';
-            });
-    } else {
-        messageDiv.innerText = 'Please enter a valid nickname.';
-    }
-}
-
-// "Click Me!" 버튼 클릭 이벤트 처리
-function handleButtonClick() {
-    if (!nickname || !userId) {
-        alert('Please set your nickname first!');
-        return;
-    }
-
-    if (ws.readyState !== WebSocket.OPEN) {
-        alert('WebSocket is not connected. Please refresh the page.');
-        return;
-    }
-
-    ws.send(JSON.stringify({ userId, nickname }));
-    console.log('Button clicked and data sent:', { userId, nickname });
-}
-
-// WebSocket 메시지 처리
-ws.onmessage = (event) => {
-    try {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'ranking-update') {
-            const rankingList = document.getElementById('ranking-list');
-            rankingList.innerHTML = ''; // 기존 순위 목록 초기화
-
-            data.data.forEach((entry, index) => {
-                const li = document.createElement('li');
-                li.textContent = `${index + 1}위: ${entry.nickname}`;
-                rankingList.appendChild(li);
-            });
-        } else if (data.type === 'ranking-reset') {
-            const rankingList = document.getElementById('ranking-list');
-            rankingList.innerHTML = ''; // 순위 초기화
-            alert('The ranking has been reset!');
-        } else {
-            console.warn('Unknown WebSocket message type:', data.type);
+            if (data.nickname && data.userId) {
+                // 사용자의 클릭을 처리하여 순위 업데이트
+                handleUserClick(data.userId, data.nickname);
+                broadcastRankingUpdate();
+            }
+        } catch (error) {
+            console.error('Error parsing message:', error);
         }
-    } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+    });
+
+    // 연결 종료 처리
+    ws.on('close', () => {
+        console.log('Client disconnected');
+        clients = clients.filter((client) => client !== ws);
+    });
+});
+
+// 순위 업데이트 브로드캐스트 함수
+function broadcastRankingUpdate() {
+    const message = JSON.stringify({
+        type: 'ranking-update',
+        data: rankingData,
+    });
+
+    clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(message);
+        }
+    });
+}
+
+// 사용자 클릭 처리 함수
+function handleUserClick(userId, nickname) {
+    const existingEntry = rankingData.find((entry) => entry.userId === userId);
+
+    if (existingEntry) {
+        existingEntry.clicks += 1;
+    } else {
+        rankingData.push({ userId, nickname, clicks: 1 });
     }
-};
+
+    // 클릭 수에 따라 내림차순 정렬
+    rankingData.sort((a, b) => b.clicks - a.clicks);
+}
+
+// 랭킹 초기화 함수
+function resetRanking() {
+    rankingData = [];
+    broadcastRankingUpdate();
+}
+
+// 서버 시작
+server.listen(8080, () => {
+    console.log('WebSocket server is running on ws://localhost:8080');
+});
+
+// 관리 명령을 처리하는 간단한 HTTP API (선택 사항)
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+app.post('/start-ranking', (req, res) => {
+    rankingStarted = true;
+    res.send({ success: true, message: 'Ranking has started!' });
+});
+
+app.post('/reset-ranking', (req, res) => {
+    resetRanking();
+    res.send({ success: true, message: 'Ranking has been reset!' });
+});
+
+// 관리 서버 시작
+app.listen(8081, () => {
+    console.log('Admin API server is running on http://localhost:8081');
+});
