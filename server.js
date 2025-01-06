@@ -91,7 +91,7 @@ app.post('/admin-login', (req, res) => {
 app.post('/start-ranking', (req, res) => {
     try {
         rankingStarted = true;
-        broadcastRanking();
+        console.log('Ranking started');
         res.json({ success: true, message: 'Ranking started!' });
     } catch (error) {
         console.error('Error in /start-ranking:', error);
@@ -134,13 +134,13 @@ wss.on('connection', (ws) => {
 
             if (!data.userId || !users[data.userId]) {
                 return ws.send(
-                    JSON.stringify({ type: 'error', message: 'Invalid userId or user not found' })
+                    JSON.stringify({ type: 'error', message: '재접속 했어요' })
                 );
             }
 
             if (!rankingStarted) {
                 return ws.send(
-                    JSON.stringify({ type: 'error', message: 'Ranking has not started yet!' })
+                    JSON.stringify({ type: 'error', message: '아직 시작하지 않았어요!' })
                 );
             }
 
