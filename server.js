@@ -1,102 +1,213 @@
-const WebSocket = require('ws'); // WebSocket 라이브러리 로드
+const express = require('express');
 const http = require('http');
+const WebSocket = require('ws');
+const path = require('path');
 
-// HTTP 서버 생성
-const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('WebSocket Server Running');
-});
-
-// WebSocket 서버 생성
+const app = express();
+const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-let clients = []; // 연결된 클라이언트 목록
-let rankingStarted = false; // 랭킹 시작 여부
-let rankingData = []; // 순위 데이터
+const PORT = 3000;
 
-// WebSocket 이벤트 핸들러
+// 사용자 데이터 저장
+let ranking = [];
+let rankingStarted = false;
+
+const users = {}; // 사용자 데이터 저장
+
+// JSON 파싱 미들웨어
+app.use(express.json());
+
+// 정적 파일 제공
+app.use(express.static(path.join(__dirname)));
+
+// 라우팅: 메인 페이지 제공
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// 닉네임 설정 API
+app.post('/set-nickname', (req, res) => {
+    const { nickname } = req.body;
+
+    if (!nickname || typeof nickname !== 'string') {
+        return res.status(400).json({ success: false, error: 'Invalid nickname' });
+    }
+
+    const userId = `user-${Date.now()}`;
+    users[userId] = { nickname, clicks: 0, ws: null };
+
+    res.json({ success: true, userId, nickname });
+});
+
+// 현재 순위 가져오기 API
+app.post('/current-ranking', (req, res) => {
+    const { nickname } = req.body;
+
+    if (!nickname) {
+        return res.status(400).json({ success: false, error: 'Nickname is required' });
+    }
+
+    const user = Object.values(users).find((u) => u.nickname === nickname);
+
+    if (user) {
+        const rank = ranking.findIndex((u) => u.nickname === nickname) + 1;
+        return res.json({ success: true, rank });
+    }
+
+    res.status(404).json({ success: false, error: 'User not found in ranking' });
+});
+
+// 관리자 로그인 API
+app.post('/admin-login', (req, res) => {
+    const { password } = req.body;
+
+    if (password === '2025!') {
+        res.json({ success: true, message: 'Login successful' });
+    } else {
+        res.status(403).json({ success: false, message: 'Invalid password' });
+    }
+});
+
+// 랭킹 시작 API
+// 랭킹 시작
+app.post('/start-ranking', (req, res) => {
+    try {
+        rankingStarted = true;
+        console.log('Ranking started'); // 확인 로그 추가
+        broadcastRanking();
+        res.json({ success: true, message: 'Ranking started!' });
+    } catch (error) {
+        console.error('Error in /start-ranking:', error);
+        res.status(500).json({ success: false, error: 'Internal Server Error' });
+    }
+});
+
+// 랭킹 초기화 API
+app.post('/reset-ranking', (req, res) => {
+    rankingStarted = false;
+    ranking = [];
+    Object.values(users).forEach((user) => (user.clicks = 0));
+    broadcastReset();
+    res.json({ success: true, message: 'Ranking reset!' });
+});
+
+// WebSocket 연결 처리
 wss.on('connection', (ws) => {
-    console.log('Client connected');
-    clients.push(ws);
+    const userId = `user-${Date.now()}`;
+    users[userId] = {
+        nickname: `Guest_${userId}`,
+        clicks: 0,
+        ws,
+    };
 
-    // 메시지 수신 이벤트 처리
-    ws.on('message', (message) => {
-        try {
-            const data = JSON.parse(message);
+    console.log(`New user connected: ${userId}`);
 
-            if (data.nickname && data.userId) {
-                // 사용자의 클릭을 처리하여 순위 업데이트
-                handleUserClick(data.userId, data.nickname);
-                broadcastRankingUpdate();
-            }
-        } catch (error) {
-            console.error('Error parsing message:', error);
+    // 사용자에게 연결 메시지 전송
+    ws.send(
+        JSON.stringify({
+            type: 'connection',
+            userId,
+            message: `Welcome, ${users[userId].nickname}!`,
+        })
+    );
+
+    // WebSocket 메시지 처리
+ws.on('message', (message) => {
+    console.log('Received message from client:', message); // 로그 추가
+    try {
+        const data = JSON.parse(message);
+
+        if (!data.userId || !users[data.userId]) {
+            return ws.send(
+                JSON.stringify({ type: 'error', message: 'Invalid userId or user not found' })
+            );
         }
-    });
 
-    // 연결 종료 처리
+        if (!rankingStarted) {
+            return ws.send(
+                JSON.stringify({ type: 'error', message: 'Ranking has not started yet!' })
+            );
+        }
+
+        // 클릭 수 증가 및 순위 업데이트
+        users[data.userId].clicks += 1; // 클릭 수 증가
+        console.log(`Updated clicks for ${data.userId}: ${users[data.userId].clicks}`); // 클릭 수 확인
+
+        updateRanking(); // 순위 업데이트
+        broadcastRankingToAll(); // 사용자에게 순위 표시
+    } catch (error) {
+        console.error('Error processing WebSocket message:', error);
+        ws.send(JSON.stringify({ type: 'error', message: 'Error processing message' }));
+    }
+});
+
     ws.on('close', () => {
-        console.log('Client disconnected');
-        clients = clients.filter((client) => client !== ws);
+        console.log(`User disconnected: ${userId}`);
+        delete users[userId];
     });
 });
 
-// 순위 업데이트 브로드캐스트 함수
-function broadcastRankingUpdate() {
-    const message = JSON.stringify({
-        type: 'ranking-update',
-        data: rankingData,
-    });
+function updateRanking() {
+    console.log('Updating ranking...'); // 확인 로그
+    ranking = Object.values(users)
+        .filter((user) => user.clicks > 0) // 클릭 수가 0 이상인 사용자만 포함
+        .sort((a, b) => b.clicks - a.clicks) // 클릭 수 기준 내림차순 정렬
+        .slice(0, 10); // 상위 10명만 유지
+    console.log('Updated ranking:', ranking); // 갱신된 랭킹 로그 출력
+}
 
-    clients.forEach((client) => {
+// 순위 브로드캐스트 함수 (관리자에게만 전송)
+function broadcastRanking() {
+    const rankingData = ranking.map((user, index) => ({
+        rank: index + 1,
+        nickname: user.nickname,
+        clicks: user.clicks,
+    }));
+
+    const message = JSON.stringify({ type: 'ranking-update', data: rankingData });
+
+    wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN && client.isAdmin) {
+            client.send(message);
+        }
+    });
+}
+
+// 모든 사용자에게 순위 브로드캐스트
+function broadcastRankingToAll() {
+    const rankingData = ranking.map((user, index) => ({
+        rank: index + 1,
+        nickname: user.nickname,
+        clicks: user.clicks,
+    }));
+
+    console.log('Broadcasting ranking data:', rankingData); // 로그 추가
+
+    const message = JSON.stringify({ type: 'ranking-update', data: rankingData });
+    wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(message);
         }
     });
 }
 
-// 사용자 클릭 처리 함수
-function handleUserClick(userId, nickname) {
-    const existingEntry = rankingData.find((entry) => entry.userId === userId);
-
-    if (existingEntry) {
-        existingEntry.clicks += 1;
-    } else {
-        rankingData.push({ userId, nickname, clicks: 1 });
-    }
-
-    // 클릭 수에 따라 내림차순 정렬
-    rankingData.sort((a, b) => b.clicks - a.clicks);
+// 초기화 브로드캐스트 함수
+function broadcastReset() {
+    const message = JSON.stringify({ type: 'ranking-reset' });
+    wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(message);
+        }
+    });
 }
 
-// 랭킹 초기화 함수
-function resetRanking() {
-    rankingData = [];
-    broadcastRankingUpdate();
-}
+// 404 처리
+app.use((req, res) => {
+    res.status(404).json({ success: false, error: 'Not Found' });
+});
 
 // 서버 시작
-server.listen(8080, () => {
-    console.log('WebSocket server is running on ws://localhost:8080');
-});
-
-// 관리 명령을 처리하는 간단한 HTTP API (선택 사항)
-const express = require('express');
-const app = express();
-
-app.use(express.json());
-
-app.post('/start-ranking', (req, res) => {
-    rankingStarted = true;
-    res.send({ success: true, message: 'Ranking has started!' });
-});
-
-app.post('/reset-ranking', (req, res) => {
-    resetRanking();
-    res.send({ success: true, message: 'Ranking has been reset!' });
-});
-
-// 관리 서버 시작
-app.listen(8081, () => {
-    console.log('Admin API server is running on http://localhost:8081');
+server.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
 });
