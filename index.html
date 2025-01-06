@@ -3,56 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>speedtap witu</title>
+    <title>SpeedTap Witu</title>
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+    
+   <!-- 컨페티 컨테이너 -->
+   <div id="confetti-container"></div>
 
+  <!-- 닉네임 표시 영역 -->
+  <div id="nickname-display" style="position: fixed; top: 10px; left: 50%; transform: translateX(-50%); font-size: 20px; color: #ffffff; background: rgba(0, 0, 0, 0.6); padding: 10px 20px; border-radius: 10px; display: none; z-index: 1000;">
+    <!-- 닉네임 텍스트가 여기에 표시됩니다 -->
+</div>
+
+
+    <!-- 메시지 표시 컨테이너 -->
     <div id="message-container" class="message"></div>
+
     <!-- 닉네임 입력 화면 -->
+    <div id="message-container" class="message"></div>
     <div id="nickname-container" class="container">
         <h1>이름을 알려주세요!</h1>
         <input type="text" id="nickname" placeholder="이름을 입력하세요" />
-        <button onclick="setNickname()">Confirm</button>
+        <button id="nickname-confirm-button">Confirm</button>
         <div id="message"></div>
     </div>
 
-
     <!-- 버튼 클릭 및 순위 화면 -->
     <div id="button-container" class="container hidden">
-        <h1 id="welcome-message"></h1>
-        <div id="ranking">
-            <h2> </h2>
-        </div>
-        <button id="action-button" onclick="handleButtonClick()">저요!</button>
+        <button id="action-button">저요!</button>
     </div>
-
 
     <!-- Admin 화면 -->
     <div id="admin-section">
         <button id="admin-button">관리자</button>
+
+        <!-- 관리자 로그인 창 -->
         <div id="admin-login" class="hidden">
-            <button id="close-admin-login">×</button> <!-- 닫기 버튼 추가 -->
+            <button id="close-admin-login">×</button> <!-- 닫기 버튼 -->
             <input type="password" id="admin-password" placeholder="관리자 비밀번호를 입력해주세요" />
             <button id="admin-login-button">Login</button>
             <div id="admin-message"></div>
         </div>
 
-
+        <!-- 관리자 패널 -->
         <div id="admin-panel" class="hidden">
             <h2>관리자 패널</h2>
-            <button id="close-admin-panel">×</button> <!-- 닫기 버튼 추가 -->
-            <button id="start-ranking-button">랭킹시작</button>
+            <button id="close-admin-panel">×</button> <!-- 닫기 버튼 -->
+            <button id="start-ranking-button">랭킹 시작</button>
             <button id="reset-ranking-button">초기화</button>
             <div id="admin-status-message"></div>
-            <div id="live-ranking">
+
+            <!-- 관리자 전용 순위표 -->
+            <div id="admin-ranking">
                 <h3>실시간 순위</h3>
-                <ul id="live-ranking-list"></ul>
+                <ul id="admin-ranking-list"></ul>
             </div>
         </div>
-
-
     </div>
+
+    <div id="live-ranking" class="hidden">
+        <h2>Live Ranking</h2>
+        <ul id="live-ranking-list"></ul>
+    </div>
+
+
+    <!-- JavaScript 연결 -->
     <script src="/script.js"></script>
 </body>
 </html>
