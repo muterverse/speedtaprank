@@ -163,7 +163,7 @@ function updateRanking() {
     ranking = Object.values(users)
         .filter((user) => user.clicks > 0)
         .sort((a, b) => b.clicks - a.clicks)
-        .slice(0, 10);
+        .slice(0, 100);
 }
 
 // 모든 사용자에게 순위 브로드캐스트
