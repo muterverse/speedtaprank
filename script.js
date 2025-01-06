@@ -5,10 +5,17 @@ let clickDisabled = false; // "Click Me!" 버튼 비활성화 상태
 let isAdminLoggedIn = false; // 관리자 로그인 상태
 let currentRank = null; // 현재 표시된 순위를 저장
 
-const ws = new WebSocket('wss://' + window.location.host); // WebSocket 연결
+const ws = new WebSocket('ws://' + window.location.host);
 
 // WebSocket 이벤트 처리
-ws.onopen = () => console.log('WebSocket connected');
+ws.onopen = () => {
+    console.log('WebSocket connected');
+    // 저장된 닉네임이 있을 경우 서버에 전송
+    if (nickname) {
+        const message = { type: 'reconnect', nickname };
+        ws.send(JSON.stringify(message));
+    }
+};
 ws.onerror = (error) => console.error('WebSocket error:', error);
 ws.onclose = () => console.log('WebSocket closed');
 ws.onmessage = (event) => {
@@ -58,12 +65,19 @@ function resetRanking() {
 // 랭킹 시작 (서버와 통신)
 function startRanking() {
     fetch('/start-ranking', { method: 'POST' })
-        .then((response) => response.json())
+        .then((response) => {
+            if (!response.ok) {
+                throw new Error('Failed to start ranking'); // HTTP 응답 실패 처리
+            }
+            return response.json();
+        })
         .then((data) => {
             if (data.success) {
                 showTemporaryMessage('랭킹이 시작되었습니다!', 'success');
+                console.log('Ranking started successfully!');
             } else {
                 showTemporaryMessage('랭킹 시작에 실패했습니다.', 'error');
+                console.error('Server error:', data.error || 'Unknown error');
             }
         })
         .catch((error) => {
@@ -107,12 +121,38 @@ ws.onmessage = (event) => {
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     initializeUI();
+        // 수정 버튼 이벤트 리스너 추가
+        document.getElementById('nickname-edit-button').addEventListener('click', editNickname);
 });
+
 
 // UI 초기화
 function initializeUI() {
-    const liveRanking = document.getElementById('live-ranking');
-    if (liveRanking) liveRanking.style.display = 'none';
+    // localStorage에서 닉네임 복원
+    const savedNickname = localStorage.getItem('nickname');
+
+    if (savedNickname) {
+        nickname = savedNickname;
+
+        // UI 초기화
+        const welcomeMessage = document.querySelector('#nickname-container h1');
+        welcomeMessage.textContent = `환영합니다, ${nickname}님!`;
+        document.getElementById('nickname').style.display = 'none';
+        document.getElementById('nickname-confirm-button').style.display = 'none';
+        document.getElementById('nickname-edit-button').style.display = 'inline-block';
+        document.getElementById('button-container').classList.remove('hidden');
+
+        // 서버에 닉네임 재등록 요청
+        registerNicknameWithServer(nickname);
+    } else {
+        // 닉네임이 없을 때 기본 UI 초기화
+        const welcomeMessage = document.querySelector('#nickname-container h1');
+        welcomeMessage.textContent = '이름을 알려주세요!';
+        document.getElementById('nickname').style.display = 'inline-block';
+        document.getElementById('nickname-confirm-button').style.display = 'inline-block';
+        document.getElementById('nickname-edit-button').style.display = 'none';
+        document.getElementById('button-container').classList.add('hidden');
+    }
 }
 
 // 이벤트 리스너 설정
@@ -161,15 +201,21 @@ function setNickname() {
                 userId = data.userId; // 서버에서 제공한 사용자 ID
                 nickname = data.nickname; // 입력된 닉네임
 
-                // 닉네임 입력 필드 숨기기
-                document.getElementById('nickname').style.display = 'none';
-                document.getElementById('nickname-confirm-button').style.display = 'none';
+                // 닉네임을 localStorage에 저장
+                localStorage.setItem('nickname', nickname);
 
-                // h1 태그에 닉네임 표시
+                // 닉네임 표시
                 const welcomeMessage = document.querySelector('#nickname-container h1');
                 welcomeMessage.textContent = `환영합니다, ${nickname}님!`;
 
-                // 다음 화면 표시
+                // 입력 필드와 확인 버튼 숨기기
+                document.getElementById('nickname').style.display = 'none';
+                document.getElementById('nickname-confirm-button').style.display = 'none';
+
+                // 수정 버튼 표시
+                document.getElementById('nickname-edit-button').style.display = 'inline-block';
+
+                // 클릭 버튼 컨테이너 표시
                 document.getElementById('button-container').classList.remove('hidden');
 
                 console.log('Nickname set successfully:', nickname);
@@ -182,6 +228,42 @@ function setNickname() {
             showTemporaryMessage('서버와 연결할 수 없습니다. 다시 시도해주세요.', 'error');
         });
 }
+
+function editNickname() {
+    // 기존 닉네임을 입력 필드에 표시
+    const nicknameInput = document.getElementById('nickname');
+    nicknameInput.value = nickname;
+
+    // 입력 필드와 확인 버튼 표시
+    nicknameInput.style.display = 'inline-block';
+    document.getElementById('nickname-confirm-button').style.display = 'inline-block';
+
+    // 수정 버튼 숨기기
+    document.getElementById('nickname-edit-button').style.display = 'none';
+}
+
+function registerNicknameWithServer(nickname) {
+    fetch('/set-nickname', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname }),
+    })
+        .then((response) => response.json())
+        .then((data) => {
+            if (data.success) {
+                userId = data.userId; // 서버에서 제공한 사용자 ID 저장
+                console.log(`닉네임 "${nickname}"이 서버에 등록되었습니다.`);
+            } else {
+                showTemporaryMessage(`오류 발생: ${data.error}`, 'error');
+                console.error(`Server error: ${data.error}`);
+            }
+        })
+        .catch((error) => {
+            console.error('Error during nickname registration:', error);
+            showTemporaryMessage('서버와 연결할 수 없습니다. 다시 시도해주세요.', 'error');
+        });
+}
+
 
 // "Click Me!" 버튼 클릭 처리
 function handleClickMe() {
@@ -448,4 +530,3 @@ function resetRankingUI() {
     hideRankMessage();
     showTemporaryMessage('랭킹이 초기화되었습니다!', 'success');
 }
-
