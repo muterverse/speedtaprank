@@ -50,6 +50,19 @@ server.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });
 
+// 서버 시작
+server.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
+
+
+if (!server.listening) {
+    server.listen(PORT, () => {
+        console.log(`Server is running on http://localhost:${PORT}`);
+    });
+}
+
+
 // 닉네임 설정 API
 app.post('/set-nickname', (req, res) => {
     const { nickname } = req.body;
@@ -231,7 +244,4 @@ app.use((req, res) => {
     res.status(404).json({ success: false, error: 'Not Found' });
 });
 
-// 서버 시작
-server.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
+
