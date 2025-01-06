@@ -11,7 +11,7 @@ const server = http.createServer(app);
 // WebSocket 서버 설정
 const wss = new WebSocket.Server({ server });
 
-const PORT = 3000; // HTTP 기본 포트
+
 
 // 사용자 데이터 저장
 let ranking = [];
@@ -45,6 +45,7 @@ wss.on('connection', (ws) => {
 });
 
 // HTTP 서버 실행
+const PORT = 4000; // 다른 포트 사용
 server.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });
