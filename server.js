@@ -1,7 +1,7 @@
 const express = require('express');
 const WebSocket = require('ws');
 const path = require('path');
-const http = require('http'); // HTTP 모듈로 변경
+const http = require('http'); // HTTP 모듈
 
 const app = express();
 
@@ -11,7 +11,7 @@ const server = http.createServer(app);
 // WebSocket 서버 설정
 const wss = new WebSocket.Server({ server });
 
-
+const PORT = 3000; // HTTP 기본 포트
 
 // 사용자 데이터 저장
 let ranking = [];
@@ -43,25 +43,6 @@ wss.on('connection', (ws) => {
         console.log('WebSocket client disconnected');
     });
 });
-
-// HTTP 서버 실행
-const PORT = 4000; // 다른 포트 사용
-server.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
-
-// 서버 시작
-server.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
-
-
-if (!server.listening) {
-    server.listen(PORT, () => {
-        console.log(`Server is running on http://localhost:${PORT}`);
-    });
-}
-
 
 // 닉네임 설정 API
 app.post('/set-nickname', (req, res) => {
@@ -107,11 +88,9 @@ app.post('/admin-login', (req, res) => {
 });
 
 // 랭킹 시작 API
-// 랭킹 시작
 app.post('/start-ranking', (req, res) => {
     try {
         rankingStarted = true;
-        console.log('Ranking started'); // 확인 로그 추가
         broadcastRanking();
         res.json({ success: true, message: 'Ranking started!' });
     } catch (error) {
@@ -140,7 +119,6 @@ wss.on('connection', (ws) => {
 
     console.log(`New user connected: ${userId}`);
 
-    // 사용자에게 연결 메시지 전송
     ws.send(
         JSON.stringify({
             type: 'connection',
@@ -149,35 +127,31 @@ wss.on('connection', (ws) => {
         })
     );
 
-    // WebSocket 메시지 처리
-ws.on('message', (message) => {
-    console.log('Received message from client:', message); // 로그 추가
-    try {
-        const data = JSON.parse(message);
+    ws.on('message', (message) => {
+        console.log('Received message from client:', message);
+        try {
+            const data = JSON.parse(message);
 
-        if (!data.userId || !users[data.userId]) {
-            return ws.send(
-                JSON.stringify({ type: 'error', message: 'Invalid userId or user not found' })
-            );
+            if (!data.userId || !users[data.userId]) {
+                return ws.send(
+                    JSON.stringify({ type: 'error', message: 'Invalid userId or user not found' })
+                );
+            }
+
+            if (!rankingStarted) {
+                return ws.send(
+                    JSON.stringify({ type: 'error', message: 'Ranking has not started yet!' })
+                );
+            }
+
+            users[data.userId].clicks += 1;
+            updateRanking();
+            broadcastRankingToAll();
+        } catch (error) {
+            console.error('Error processing WebSocket message:', error);
+            ws.send(JSON.stringify({ type: 'error', message: 'Error processing message' }));
         }
-
-        if (!rankingStarted) {
-            return ws.send(
-                JSON.stringify({ type: 'error', message: 'Ranking has not started yet!' })
-            );
-        }
-
-        // 클릭 수 증가 및 순위 업데이트
-        users[data.userId].clicks += 1; // 클릭 수 증가
-        console.log(`Updated clicks for ${data.userId}: ${users[data.userId].clicks}`); // 클릭 수 확인
-
-        updateRanking(); // 순위 업데이트
-        broadcastRankingToAll(); // 사용자에게 순위 표시
-    } catch (error) {
-        console.error('Error processing WebSocket message:', error);
-        ws.send(JSON.stringify({ type: 'error', message: 'Error processing message' }));
-    }
-});
+    });
 
     ws.on('close', () => {
         console.log(`User disconnected: ${userId}`);
@@ -186,29 +160,10 @@ ws.on('message', (message) => {
 });
 
 function updateRanking() {
-    console.log('Updating ranking...'); // 확인 로그
     ranking = Object.values(users)
-        .filter((user) => user.clicks > 0) // 클릭 수가 0 이상인 사용자만 포함
-        .sort((a, b) => b.clicks - a.clicks) // 클릭 수 기준 내림차순 정렬
-        .slice(0, 10); // 상위 10명만 유지
-    console.log('Updated ranking:', ranking); // 갱신된 랭킹 로그 출력
-}
-
-// 순위 브로드캐스트 함수 (관리자에게만 전송)
-function broadcastRanking() {
-    const rankingData = ranking.map((user, index) => ({
-        rank: index + 1,
-        nickname: user.nickname,
-        clicks: user.clicks,
-    }));
-
-    const message = JSON.stringify({ type: 'ranking-update', data: rankingData });
-
-    wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN && client.isAdmin) {
-            client.send(message);
-        }
-    });
+        .filter((user) => user.clicks > 0)
+        .sort((a, b) => b.clicks - a.clicks)
+        .slice(0, 10);
 }
 
 // 모든 사용자에게 순위 브로드캐스트
@@ -218,8 +173,6 @@ function broadcastRankingToAll() {
         nickname: user.nickname,
         clicks: user.clicks,
     }));
-
-    console.log('Broadcasting ranking data:', rankingData); // 로그 추가
 
     const message = JSON.stringify({ type: 'ranking-update', data: rankingData });
     wss.clients.forEach((client) => {
@@ -239,9 +192,17 @@ function broadcastReset() {
     });
 }
 
-// 404 처리
-app.use((req, res) => {
-    res.status(404).json({ success: false, error: 'Not Found' });
+// 중복 실행 방지 및 에러 처리
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is already in use.`);
+        process.exit(1);
+    } else {
+        console.error('Server error:', err);
+    }
 });
 
-
+// 서버 시작
+server.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
