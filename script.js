@@ -5,7 +5,7 @@ let clickDisabled = false; // "Click Me!" 버튼 비활성화 상태
 let isAdminLoggedIn = false; // 관리자 로그인 상태
 let currentRank = null; // 현재 표시된 순위를 저장
 
-const ws = new WebSocket('ws://' + window.location.host); // WebSocket 연결
+const ws = new WebSocket('wss://' + window.location.host); // WebSocket 연결
 
 // WebSocket 이벤트 처리
 ws.onopen = () => console.log('WebSocket connected');
