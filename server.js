@@ -1,13 +1,21 @@
+const fs = require('fs');
+const https = require('https'); // HTTPS를 사용하기 위해 모듈 변경
 const express = require('express');
-const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 
 const app = express();
-const server = http.createServer(app);
+
+// HTTPS 서버 생성: SSL 인증서 사용
+const server = https.createServer({
+    key: fs.readFileSync('path/to/your/key.pem'), // 개인 키 파일 경로
+    cert: fs.readFileSync('path/to/your/cert.pem') // 인증서 파일 경로
+}, app);
+
+// WebSocket 서버 설정
 const wss = new WebSocket.Server({ server });
 
-const PORT = 3000;
+const PORT = 443; // HTTPS 기본 포트
 
 // 사용자 데이터 저장
 let ranking = [];
@@ -24,6 +32,25 @@ app.use(express.static(path.join(__dirname)));
 // 라우팅: 메인 페이지 제공
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// WebSocket 연결 이벤트
+wss.on('connection', (ws) => {
+    console.log('WebSocket client connected');
+    
+    ws.on('message', (message) => {
+        console.log(`Received message: ${message}`);
+        // 메시지 처리 로직 추가
+    });
+
+    ws.on('close', () => {
+        console.log('WebSocket client disconnected');
+    });
+});
+
+// HTTPS 서버 실행
+server.listen(PORT, () => {
+    console.log(`Server is running on https://localhost:${PORT}`);
 });
 
 // 닉네임 설정 API
